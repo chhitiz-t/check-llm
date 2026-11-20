@@ -1,0 +1,72 @@
+competition:
+  slug: "name-that-llm"
+  kaggle_input_dir: "/kaggle/input/competitions/name-that-llm"
+  local_data_dir: "data/raw"
+  processed_dir: "data/processed"
+  artifacts_dir: "artifacts"
+  submission_path: "submission.parquet"
+
+cv:
+  n_splits: 5
+  seed: 42
+  group_col: "prompt_id"
+  target_col: "model"
+
+model:
+  # Full-precision instruction-tuned checkpoint for QLoRA fine-tuning
+  train_model_id: "google/gemma-4-12B-it"
+  # Official Google QAT W4A16 compressed-tensors checkpoint (~8.3 GB) for T4 vLLM serving
+  vllm_model_id: "google/gemma-4-12B-it-qat-w4a16-ct"
+  max_passage_chars: 2400
+  enable_thinking: false
+
+qlora:
+  load_in_4bit: true
+  bnb_4bit_quant_type: "nf4"
+  bnb_4bit_use_double_quant: true
+  # Use bfloat16 on A100/L4/H100 training GPUs; switch to float16 if training on T4
+  compute_dtype: "bfloat16"
+  lora_r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+  learning_rate: 1.5e-4
+  weight_decay: 0.01
+  warmup_ratio: 0.06
+  num_train_epochs: 3
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 8
+  max_seq_length: 1024
+  use_balanced_class_weights: true
+  label_smoothing: 0.03
+
+vllm:
+  # Kaggle T4x2 settings (SM75 Turing: float16, 16 GB VRAM per card)
+  dtype: "float16"
+  max_model_len: 2048
+  gpu_memory_utilization: 0.90
+  enforce_eager: true
+  enable_prefix_caching: true
+  limit_mm_per_prompt:
+    image: 0
+    audio: 0
+  # Set mode to "lora" (1 base QAT model + 5 LoRA fold adapters) or "merged" (pre-merged W4A16 model)
+  adapter_mode: "lora"
+  max_lora_rank: 32
+  lora_dtype: "float16"
+  top_logprobs: 20
+  num_gpus: 2
+
+postprocess:
+  use_prior_adjustment: true
+  optimize_multipliers: true
+  n_random_restarts: 8
+  seed: 42

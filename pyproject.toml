@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "name-that-llm"
+version = "0.1.0"
+description = "End-to-end Gemma 4 12B QLoRA + Dual-T4 vLLM inference pipeline for Kaggle Name That LLM"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26.0",
+    "pandas>=2.1.0",
+    "pyarrow>=14.0.0",
+    "pyyaml>=6.0.1",
+    "scikit-learn>=1.4.0",
+    "scipy>=1.11.0",
+    "tabulate>=0.9.0",
+    "tqdm>=4.66.0",
+]
+
+[project.optional-dependencies]
+train = [
+    "torch>=2.6.0",
+    "transformers>=4.51.0",
+    "datasets>=2.19.0",
+    "accelerate>=1.2.0",
+    "peft>=0.14.0",
+    "bitsandbytes>=0.45.0",
+    "trl>=0.14.0",
+]
+quantize = [
+    "llmcompressor>=0.5.0",
+    "compressed-tensors>=0.9.0",
+]
+infer = [
+    "vllm>=0.23.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
