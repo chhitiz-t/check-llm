@@ -64,6 +64,11 @@ else
   GRAD_ACCUM="${GRAD_ACCUM:-16}"
 fi
 
+# Pin to single GPU when card VRAM >= 20GB so HF Trainer never attempts nn.DataParallel on 4-bit weights
+if [ "${GPU_MEM_MIB}" -ge 20000 ] && [ -z "${CUDA_VISIBLE_DEVICES:-}" ]; then
+  export CUDA_VISIBLE_DEVICES="0"
+fi
+
 echo "-> Selected compute_dtype=${COMPUTE_DTYPE}, batch_size=${BATCH_SIZE}, grad_accum=${GRAD_ACCUM} (effective batch=$((BATCH_SIZE * GRAD_ACCUM)))"
 
 echo "============================================================"

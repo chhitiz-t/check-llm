@@ -13,6 +13,8 @@ Phase 2 upgrades:
 from __future__ import annotations
 
 import argparse
+import inspect
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -158,7 +160,7 @@ class RestrictedLabelTrainer(Trainer):
         inputs: dict[str, torch.Tensor],
         return_outputs: bool = False,
         **kwargs: Any,
-    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor | tuple[torch.Tensor, dict[str, torch.Tensor]]:
         logits_18, class_idx = self._extract_18_logits(model, inputs)
         weight = None
         if self.class_weights_np is not None:
@@ -166,7 +168,7 @@ class RestrictedLabelTrainer(Trainer):
 
         loss_fn = nn.CrossEntropyLoss(weight=weight, label_smoothing=self.label_smoothing)
         loss = loss_fn(logits_18, class_idx)
-        return (loss, logits_18) if return_outputs else loss
+        return (loss, {"logits": logits_18}) if return_outputs else loss
 
     def prediction_step(
         self,
@@ -174,12 +176,13 @@ class RestrictedLabelTrainer(Trainer):
         inputs: dict[str, torch.Tensor],
         prediction_loss_only: bool,
         ignore_keys: list[str] | None = None,
+        **kwargs: Any,
     ) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
         with torch.no_grad():
-            loss, logits_18 = self.compute_loss(model, inputs, return_outputs=True)
+            loss, out_dict = self.compute_loss(model, inputs, return_outputs=True)
         if prediction_loss_only:
             return (loss.detach(), None, None)
-        return (loss.detach(), logits_18.detach(), inputs["class_idx"].detach())
+        return (loss.detach(), out_dict["logits"].detach(), inputs["class_idx"].detach())
 
 
 def run_fold_training(
@@ -264,14 +267,29 @@ def run_fold_training(
         bnb_4bit_compute_dtype=compute_dtype,
     )
 
+    # Keep 4-bit model on a single GPU when card VRAM >= 20 GB to avoid PCIe sharding & DataParallel issues
+    if torch.cuda.is_available() and (
+        torch.cuda.get_device_properties(0).total_memory >= 20 * (1024**3)
+    ):
+        target_device_map: str | dict[str, int] = {"": torch.cuda.current_device()}
+    else:
+        target_device_map = "auto"
+
     base_model = load_gemma4_for_training(
         model_id,
         quantization_config=bnb_config,
-        device_map="auto",
+        device_map=target_device_map,
         trust_remote_code=True,
     )
     base_model.config.use_cache = False
-    base_model = prepare_model_for_kbit_training(base_model)
+    kbit_params = inspect.signature(prepare_model_for_kbit_training).parameters
+    if "gradient_checkpointing_kwargs" in kbit_params:
+        base_model = prepare_model_for_kbit_training(
+            base_model,
+            gradient_checkpointing_kwargs={"use_reentrant": False},
+        )
+    else:
+        base_model = prepare_model_for_kbit_training(base_model)
 
     lora_config = LoraConfig(
         r=int(qlora_cfg["lora_r"]),
@@ -305,30 +323,45 @@ def run_fold_training(
         }
 
     use_bf16 = compute_dtype == torch.bfloat16
-    training_args = TrainingArguments(
-        output_dir=str(out_dir / "checkpoints"),
-        num_train_epochs=float(qlora_cfg["num_train_epochs"]),
-        per_device_train_batch_size=int(qlora_cfg["per_device_train_batch_size"]),
-        per_device_eval_batch_size=int(qlora_cfg["per_device_eval_batch_size"]),
-        gradient_accumulation_steps=int(qlora_cfg["gradient_accumulation_steps"]),
-        learning_rate=float(qlora_cfg["learning_rate"]),
-        weight_decay=float(qlora_cfg["weight_decay"]),
-        warmup_ratio=float(qlora_cfg["warmup_ratio"]),
-        lr_scheduler_type="cosine",
-        eval_strategy="epoch",
-        save_strategy="epoch",
-        load_best_model_at_end=True,
-        metric_for_best_model="balanced_accuracy",
-        greater_is_better=True,
-        bf16=use_bf16,
-        fp16=not use_bf16,
-        gradient_checkpointing=True,
-        logging_steps=20,
-        remove_unused_columns=False,
-        save_total_limit=2,
-        seed=int(cv_cfg["seed"]) + fold,
-        report_to="none",
-    )
+    eff_batch = int(qlora_cfg["per_device_train_batch_size"]) * int(qlora_cfg["gradient_accumulation_steps"])
+    steps_per_epoch = max(1, math.ceil(len(train_ds) / eff_batch))
+    total_train_steps = max(1, int(round(steps_per_epoch * float(qlora_cfg["num_train_epochs"]))))
+    warmup_steps = max(1, int(round(total_train_steps * float(qlora_cfg.get("warmup_ratio", 0.06)))))
+
+    ta_kwargs: dict[str, Any] = {
+        "output_dir": str(out_dir / "checkpoints"),
+        "num_train_epochs": float(qlora_cfg["num_train_epochs"]),
+        "per_device_train_batch_size": int(qlora_cfg["per_device_train_batch_size"]),
+        "per_device_eval_batch_size": int(qlora_cfg["per_device_eval_batch_size"]),
+        "gradient_accumulation_steps": int(qlora_cfg["gradient_accumulation_steps"]),
+        "learning_rate": float(qlora_cfg["learning_rate"]),
+        "weight_decay": float(qlora_cfg["weight_decay"]),
+        "warmup_steps": warmup_steps,
+        "lr_scheduler_type": "cosine",
+        "optim": "paged_adamw_8bit",
+        "eval_strategy": "epoch",
+        "save_strategy": "epoch",
+        "load_best_model_at_end": True,
+        "metric_for_best_model": "balanced_accuracy",
+        "greater_is_better": True,
+        "bf16": use_bf16,
+        "fp16": not use_bf16,
+        "gradient_checkpointing": True,
+        "gradient_checkpointing_kwargs": {"use_reentrant": False},
+        "logging_steps": 20,
+        "remove_unused_columns": False,
+        "save_total_limit": 2,
+        "seed": int(cv_cfg["seed"]) + fold,
+        "report_to": "none",
+    }
+
+    # Filter against installed TrainingArguments signature for Transformers v4 / v5 compatibility
+    valid_ta_params = set(inspect.signature(TrainingArguments.__init__).parameters.keys())
+    if "eval_strategy" not in valid_ta_params and "evaluation_strategy" in valid_ta_params:
+        ta_kwargs["evaluation_strategy"] = ta_kwargs.pop("eval_strategy")
+    ta_kwargs = {k: v for k, v in ta_kwargs.items() if k in valid_ta_params}
+
+    training_args = TrainingArguments(**ta_kwargs)
 
     trainer = RestrictedLabelTrainer(
         model=model,
@@ -345,7 +378,7 @@ def run_fold_training(
     trainer.train()
 
     adapter_dir = out_dir / "best_adapter"
-    model.save_pretrained(str(adapter_dir))
+    trainer.model.save_pretrained(str(adapter_dir))
     tokenizer.save_pretrained(str(adapter_dir))
 
     pred_output = trainer.predict(val_ds)
