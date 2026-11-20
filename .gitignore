@@ -4,10 +4,10 @@ __pycache__/
 *.egg-info/
 build/
 dist/
-data/
 artifacts/
 kaggle_upload_bundle/
-*.parquet
+/submission.parquet
+data/raw/*.zip
 *.npz
 *.npy
 .DS_Store

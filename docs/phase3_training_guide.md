@@ -12,22 +12,14 @@ This guide walks through running **Phase 3** on a Linux NVIDIA GPU machine (RunP
 
 ---
 
-## 2. Clone Repository & Supply `train.csv`
+## 2. Clone Repository (`data/raw/` & `train_folds.parquet` Included)
 
 ```bash
 git clone https://github.com/chhitiz-t/check-llm.git
 cd check-llm
-mkdir -p data/raw
 ```
 
-Copy `train.csv` and `test.csv` (`2.0 MB` total) to the GPU box (from your Mac):
-
-```bash
-# Run on your Mac terminal:
-scp /Users/chhitiz.t/Downloads/kaggle/name-that-llm/data/raw/{train.csv,test.csv,sample_submission.parquet} <USER>@<GPU_HOST>:~/check-llm/data/raw/
-```
-
-*(Alternatively, set `export KAGGLE_API_TOKEN="..."` on the GPU box and the Phase 3 script will auto-download `train.csv`.)*
+`data/raw/{train.csv,test.csv,sample_submission.parquet}` and `data/processed/train_folds.parquet` are already committed in the repository—no manual `scp` or Kaggle download needed.
 
 If your Hugging Face account uses a token for higher download speeds / Gemma access:
 ```bash
