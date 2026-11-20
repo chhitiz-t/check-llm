@@ -29,14 +29,20 @@ def main() -> None:
     all_y = []
     all_probs = []
 
+    found_folds = []
     for fold in range(n_splits):
         oof_file = artifacts_dir / f"oof_fold_{fold}.npz"
         if not oof_file.exists():
-            raise FileNotFoundError(f"Missing fold OOF file: {oof_file}")
+            continue
+        found_folds.append(fold)
         data = np.load(oof_file, allow_pickle=True)
         all_ids.append(data["ids"])
         all_y.append(data["y_true"])
         all_probs.append(data["probs"])
+
+    if not found_folds:
+        raise FileNotFoundError(f"No oof_fold_*.npz files found in {artifacts_dir}")
+    print(f"Loaded OOF predictions from fold(s): {found_folds} ({sum(len(y) for y in all_y)} rows)")
 
     y_true = np.concatenate(all_y, axis=0)
     oof_probs = np.vstack(all_probs)

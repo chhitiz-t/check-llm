@@ -75,7 +75,7 @@ def main() -> None:
 
     vllm_cfg = {
         "dtype": "float16",
-        "max_model_len": 2048,
+        "max_model_len": 1024,
         "gpu_memory_utilization": 0.90,
         "enforce_eager": True,
         "enable_prefix_caching": True,
@@ -92,6 +92,7 @@ def main() -> None:
         adapter_dirs=adapter_dirs,
         vllm_cfg=vllm_cfg,
         max_passage_chars=2400,
+        include_stylometry_header=True,
     )
 
     if postprocess_json.exists():

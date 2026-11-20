@@ -89,9 +89,10 @@ def tokenize_sft_example(
     tokenizer: Any,
     passage: str,
     label_code: str,
-    max_seq_length: int = 1024,
+    max_seq_length: int = 768,
     max_passage_chars: int = 2400,
     enable_thinking: bool = False,
+    include_stylometry_header: bool = True,
 ) -> dict[str, list[int]]:
     """Build input_ids & labels where loss is computed ONLY on the single class code token."""
     prompt_text = render_inference_prompt(
@@ -99,6 +100,7 @@ def tokenize_sft_example(
         passage=passage,
         max_chars=max_passage_chars,
         enable_thinking=enable_thinking,
+        include_stylometry_header=include_stylometry_header,
     )
     prompt_ids: list[int] = tokenizer.encode(prompt_text, add_special_tokens=False)
     code_ids: list[int] = tokenizer.encode(label_code, add_special_tokens=False)
@@ -107,10 +109,12 @@ def tokenize_sft_example(
             f"Expected class code {label_code!r} to tokenize to 1 token, got {code_ids}"
         )
 
-    # Keep the tail of the prompt if passage exceeds max_seq_length, preserving the generation cue
+    # Preserve the generation turn suffix (`<turn|>\n<|turn>model\n...`) if passage ever exceeds max_seq_length
     max_prompt_tokens = max_seq_length - 1
     if len(prompt_ids) > max_prompt_tokens:
-        prompt_ids = prompt_ids[:max_prompt_tokens]
+        tail_keep = min(32, max_prompt_tokens // 4)
+        head_keep = max_prompt_tokens - tail_keep
+        prompt_ids = prompt_ids[:head_keep] + prompt_ids[-tail_keep:]
 
     input_ids = prompt_ids + code_ids
     labels = ([-100] * len(prompt_ids)) + code_ids

@@ -36,6 +36,7 @@ def run_dual_gpu_vllm_inference(
     adapter_dirs: list[str],
     vllm_cfg: dict[str, object],
     max_passage_chars: int = 2400,
+    include_stylometry_header: bool = True,
 ) -> np.ndarray:
     n_rows = len(test_df)
     requested_gpus = int(vllm_cfg.get("num_gpus", 2))
@@ -85,6 +86,8 @@ def run_dual_gpu_vllm_inference(
                 "--max-passage-chars",
                 str(max_passage_chars),
             ]
+            if not include_stylometry_header:
+                cmd.append("--no-stylometry-header")
             print(f"[Orchestrator] Launching vLLM worker on GPU {gpu_id} ({len(shard_df)} passages)...")
             proc = subprocess.Popen(cmd, env=env)
             procs.append((gpu_id, proc, shard_out_npy))
@@ -125,6 +128,7 @@ def main() -> None:
         adapter_dirs=list(args.adapter_dirs),
         vllm_cfg=cfg["vllm"],
         max_passage_chars=int(cfg["model"]["max_passage_chars"]),
+        include_stylometry_header=bool(cfg["model"].get("include_stylometry_header", True)),
     )
 
     if args.save_probs_npy:

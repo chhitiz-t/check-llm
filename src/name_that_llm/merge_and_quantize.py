@@ -16,7 +16,9 @@ from pathlib import Path
 
 import torch
 from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
+
+from name_that_llm.train_qlora import load_gemma4_for_training
 
 
 def merge_lora_to_base(
@@ -27,7 +29,7 @@ def merge_lora_to_base(
 ) -> Path:
     dtype = torch.float16 if dtype_str == "float16" else torch.bfloat16
     print(f"Loading base model {base_model_id} in {dtype_str}...")
-    base_model = AutoModelForCausalLM.from_pretrained(
+    base_model = load_gemma4_for_training(
         base_model_id,
         torch_dtype=dtype,
         device_map="cpu",

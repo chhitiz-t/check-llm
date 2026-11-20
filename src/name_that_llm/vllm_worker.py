@@ -85,6 +85,7 @@ def run_worker(
     top_logprobs: int = 20,
     max_passage_chars: int = 2400,
     enable_thinking: bool = False,
+    include_stylometry_header: bool = True,
     tensor_parallel_size: int = 1,
 ) -> None:
     from vllm import LLM, SamplingParams
@@ -125,6 +126,7 @@ def run_worker(
             passage=text,
             max_chars=max_passage_chars,
             enable_thinking=enable_thinking,
+            include_stylometry_header=include_stylometry_header,
         )
         for text in shard_df["text"].tolist()
     ]
@@ -176,6 +178,7 @@ def main() -> None:
     parser.add_argument("--lora-dtype", type=str, default="float16")
     parser.add_argument("--top-logprobs", type=int, default=20)
     parser.add_argument("--max-passage-chars", type=int, default=2400)
+    parser.add_argument("--no-stylometry-header", action="store_true", default=False)
     parser.add_argument("--tensor-parallel-size", type=int, default=1)
     args = parser.parse_args()
 
@@ -194,6 +197,7 @@ def main() -> None:
         lora_dtype=args.lora_dtype,
         top_logprobs=args.top_logprobs,
         max_passage_chars=args.max_passage_chars,
+        include_stylometry_header=not args.no_stylometry_header,
         tensor_parallel_size=args.tensor_parallel_size,
     )
 
